@@ -5,18 +5,14 @@
 #include "codec.h"
 
 //Defines
-
 #define NOTEFREQUENCY 0.015		//frequency of saw wave: f0 = 0.5 * NOTEFREQUENCY * 48000 (=sample rate)
 #define NOTEAMPLITUDE 500.0		//amplitude of the saw wave
-
 
 typedef struct {
 	float tabs[8];
 	float params[8];
 	uint8_t currIndex;
 } fir_8;
-
-
 
 // struct to initialize GPIO pins
 GPIO_InitTypeDef GPIO_InitStructure;
@@ -26,7 +22,7 @@ volatile int16_t sample = 0;
 
 double sawWave = 0.0;
 
-float filteredSaw = 0.0;
+double filteredSaw = 0.0;
 
 float updateFilter(fir_8* theFilter, float newValue);
 
