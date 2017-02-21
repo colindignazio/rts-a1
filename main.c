@@ -17,10 +17,6 @@
 
 #define ALL_LEDS GPIO_Pin_12 | GPIO_Pin_13 | GPIO_Pin_14 | GPIO_Pin_15
 
-fir_8 filt;
-static uint16_t alert_timer = 0;
-static uint8_t playing_alert = 0;
-
 typedef enum {
 	ESPRESSO = 0,
 	LATTE = 1,
@@ -28,6 +24,20 @@ typedef enum {
 	BLACK = 3,
 	DEFAULT_COFFEE = 4
 } Coffee;
+
+static fir_8 filt;
+
+static Coffee selected;
+
+static uint8_t buttonPressed = 0;
+static uint8_t brewing = 0;
+static uint8_t checkForDoubleClick = 0;
+static uint8_t playingAlert = 0;
+
+static uint16_t brewTimer = 0;
+static uint16_t buttonTimer = 0;
+static uint16_t doubleClickTimer = 0;
+static uint16_t alert_timer = 0;
 
 void InitializeLEDs() {
   RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOD, ENABLE);
@@ -113,7 +123,7 @@ void PlayAlert() {
 	codec_ctrl_init();
 	initFilter(&filt);
 	I2S_Cmd(CODEC_I2S, ENABLE);
-	playing_alert = 1;
+	playingAlert = 1;
 }
 
 void StopAlert() {
@@ -150,8 +160,6 @@ uint16_t getBrewTimeForCoffeeType(Coffee type) {
 	}
 }
 
-static Coffee selected;
-
 void changeSelection() {
 	GPIO_ResetBits(GPIOD, ALL_LEDS);
 	selected++;
@@ -182,66 +190,57 @@ void alertBrewComplete() {
 	}
 
 	if(alert_timer > ALERT_TIME) { 
-		playing_alert = 0;
+		playingAlert = 0;
 		alert_timer = 0;
 		StopAlert();
 	}
 }
 
-void initializeSelection() {
+void InitializeSelection() {
 	GPIO_ResetBits(GPIOD, ALL_LEDS);
 	selected = (Coffee) -1;
 	changeSelection();
 }
 
-static uint16_t brew_timer = 0;
-static uint16_t button_timer = 0;
-static uint8_t brewing = 0;
-static uint8_t dblclick = 0;
-
-static uint16_t double_click_timer = 0;
-
 void brew() {
-	brew_timer++;
-	if(brew_timer % BLINK_TOGGLE == 0) {					
+	brewTimer++;
+	if(brewTimer % BLINK_TOGGLE == 0) {					
 		GPIO_ToggleBits(GPIOD, getPinForCoffeeType(selected));
 	}
 			
-	if(brew_timer > getBrewTimeForCoffeeType(selected)) {
+	if(brewTimer > getBrewTimeForCoffeeType(selected)) {
 		PlayAlert();
 		brewing = 0;
-		brew_timer = 0;
+		brewTimer = 0;
 		GPIO_SetBits(GPIOD, getPinForCoffeeType(selected));
 	}
 }
 
 uint8_t isShortClick() {
-	return button_timer > SHORT_PRESS;
+	return buttonTimer > SHORT_PRESS;
 }
 
 uint8_t isLongClick() {
-	return button_timer > LONG_PRESS;
+	return buttonTimer > LONG_PRESS;
 }
 
 uint8_t isDoubleClick() {
-	return dblclick && double_click_timer < DOUBLE_CLICK_TIME;
+	return checkForDoubleClick && doubleClickTimer < DOUBLE_CLICK_TIME;
 }
 
-static uint8_t button_pressed = 0;
-
 void EXTI0_IRQHandler() {
-	uint8_t button_pin;
+	uint8_t buttonPin;
 
   if(EXTI_GetITStatus(EXTI_Line0) == RESET)
 		return;
 	
-	button_pin = GPIO_ReadInputDataBit(GPIOA, GPIO_Pin_0);	
+	buttonPin = GPIO_ReadInputDataBit(GPIOA, GPIO_Pin_0);	
 		
-	if(button_pin) {
-		button_pressed = 1;
+	if(buttonPin) {
+		buttonPressed = 1;
 	}
 	else {
-		button_pressed = 0;
+		buttonPressed = 0;
 	}
 	
   EXTI_ClearITPendingBit(EXTI_Line0);            
@@ -251,12 +250,12 @@ void longClickHandler() {
 	if(!brewing) {
 		brewing = 1;
 	}	
-	button_timer = 0;
+	buttonTimer = 0;
 }
 
 void doubleClickHandler() {
 	brewing = 0;
-	dblclick = 0;
+	checkForDoubleClick = 0;
 	GPIO_SetBits(GPIOD, getPinForCoffeeType(selected));
 }
 
@@ -267,35 +266,31 @@ void shortClickHandler() {
 		if(isDoubleClick()) {
 			doubleClickHandler();
 		} else {
-			brew_timer = 0;
+			brewTimer = 0;
 		}
-		double_click_timer = 0;
-		dblclick = 1;
+		doubleClickTimer = 0;
+		checkForDoubleClick = 1;
 	}
-	button_timer = 0;			
+	buttonTimer = 0;			
 }
 
-/*
- * Handler that gets triggered every time the timer tickers (every 1ms in our case)
- * Only difference between this and an infinite loop is that we can control how often this gets run.
- */
 void TIM2_IRQHandler() {	
   if(TIM_GetITStatus(TIM2, TIM_IT_Update) == RESET)
 		return;
 	
   TIM_ClearITPendingBit(TIM2, TIM_IT_Update);
 		
-	if(playing_alert) {
+	if(playingAlert) {
 		alertBrewComplete();
 		return;
 	}
 		
-	if(dblclick) {
-		double_click_timer++;
+	if(checkForDoubleClick) {
+		doubleClickTimer++;
 	}
 		
-	if(button_pressed) {
-		button_timer++;
+	if(buttonPressed) {
+		buttonTimer++;
 	} else if(isLongClick()) {
 		longClickHandler();
 	} else if(isShortClick()) {
@@ -353,7 +348,7 @@ int main() {
 	InitEXTI();
 	InitializeCodec();
 	
-	initializeSelection();
+	InitializeSelection();
 	
 	EnableEXTIInterrupt();
 	EnableTimerInterrupt();
